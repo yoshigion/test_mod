@@ -5,6 +5,7 @@
 #include <linux/fs.h>
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /*** このデバイスに関する情報 ***/
 MODULE_LICENSE("Dual BSD/GPL");

@@ -6,32 +6,44 @@
 #include <linux/cdev.h>
 #include <linux/sched.h>
 #include <linux/device.h>
+#include <linux/slab.h>
 #include <asm/current.h>
 #include <asm/uaccess.h>
 #include <linux/uaccess.h>
 
+/*** このデバイスに関する情報 ***/
 MODULE_LICENSE("Dual BSD/GPL");
-
-/* /proc/devices等で表示されるデバイス名 */
-#define DRIVER_NAME "MyDevice"
-
-/* このデバイスドライバで使うマイナー番号の開始番号と個数(=デバイス数) */
-static const unsigned int MINOR_BASE = 0;
+#define DRIVER_NAME "MyDevice"				/* /proc/devices等で表示されるデバイス名 */
+static const unsigned int MINOR_BASE = 0;	/* このデバイスドライバで使うマイナー番号の開始番号と個数(=デバイス数) */
 static const unsigned int MINOR_NUM  = 2;	/* マイナー番号は 0 ~ 1 */
+static unsigned int mydevice_major;			/* このデバイスドライバのメジャー番号(動的に決める) */
+static struct cdev mydevice_cdev;			/* キャラクタデバイスのオブジェクト */
+static struct class *mydevice_class = NULL;	/* デバイスドライバのクラスオブジェクト */
 
-/* このデバイスドライバのメジャー番号(動的に決める) */
-static unsigned int mydevice_major;
-
-/* キャラクタデバイスのオブジェクト */
-static struct cdev mydevice_cdev;
-
-/* デバイスドライバのクラスオブジェクト */
-static struct class *mydevice_class = NULL;
+/*** 各ファイル(open毎に作られるファイルディスクリプタ)に紐づく情報 ***/
+#define NUM_BUFFER 256
+struct _mydevice_file_data {
+	unsigned char buffer[NUM_BUFFER];
+};
 
 /* open時に呼ばれる関数 */
 static int mydevice_open(struct inode *inode, struct file *file)
 {
 	printk("mydevice_open");
+
+	/* 各ファイル固有のデータを格納する領域を確保する */
+	struct _mydevice_file_data *p = kmalloc(sizeof(struct _mydevice_file_data), GFP_KERNEL);
+	if (p == NULL) {
+		printk(KERN_ERR  "kmalloc\n");
+		return -ENOMEM;
+	}
+
+	/* ファイル固有データを初期化する */
+	strlcat(p->buffer, "dummy", 5);
+	
+	/* 確保したポインタはユーザ側のfdで保持してもらう */
+	file->private_data = p;
+
 	return 0;
 }
 
@@ -39,18 +51,24 @@ static int mydevice_open(struct inode *inode, struct file *file)
 static int mydevice_close(struct inode *inode, struct file *file)
 {
 	printk("mydevice_close");
+
+	if (file->private_data) {
+		/* open時に確保した、各ファイル固有のデータ領域を解放する */
+		kfree(file->private_data);
+		file->private_data = NULL;
+	}
+
 	return 0;
 }
-
-#define NUM_BUFFER 256
-static char stored_value[NUM_BUFFER];
 
 /* read時に呼ばれる関数 */
 static ssize_t mydevice_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	printk("mydevice_read");
 	if(count > NUM_BUFFER) count = NUM_BUFFER;
-	if (copy_to_user(buf, stored_value, count) != 0) {
+
+	struct _mydevice_file_data *p = filp->private_data;
+	if (copy_to_user(buf, p->buffer, count) != 0) {
 		return -EFAULT;
 	}
 	return count;
@@ -60,10 +78,11 @@ static ssize_t mydevice_read(struct file *filp, char __user *buf, size_t count, 
 static ssize_t mydevice_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	printk("mydevice_write");
-	if (copy_from_user(stored_value, buf, count) != 0) {
+
+	struct _mydevice_file_data *p = filp->private_data;
+	if (copy_from_user(p->buffer, buf, count) != 0) {
 		return -EFAULT;
 	}
-	printk("%s\n", stored_value);
 	return count;
 }
 

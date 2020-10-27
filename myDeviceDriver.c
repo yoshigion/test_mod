@@ -9,40 +9,40 @@
 #include <linux/slab.h>
 #include <asm/current.h>
 #include <asm/uaccess.h>
-#include <linux/uaccess.h>
+#include <asm/io.h>
+
+/* ペリフェラルレジスタの物理アドレス(BCM2835の仕様書より) */
+#define REG_ADDR_BASE        (0x3F000000)		/* bcm_host_get_peripheral_address()の方がbetter */
+#define REG_ADDR_GPIO_BASE   (REG_ADDR_BASE + 0x00200000)
+#define REG_ADDR_GPIO_GPFSEL_0     0x0000
+#define REG_ADDR_GPIO_OUTPUT_SET_0 0x001C
+#define REG_ADDR_GPIO_OUTPUT_CLR_0 0x0028
+#define REG_ADDR_GPIO_LEVEL_0      0x0034
+
+#define REG(addr) (*((volatile unsigned int*)(addr)))
+#define DUMP_REG(addr) printk("%08X\n", REG(addr));
 
 /*** このデバイスに関する情報 ***/
 MODULE_LICENSE("Dual BSD/GPL");
 #define DRIVER_NAME "MyDevice"				/* /proc/devices等で表示されるデバイス名 */
 static const unsigned int MINOR_BASE = 0;	/* このデバイスドライバで使うマイナー番号の開始番号と個数(=デバイス数) */
-static const unsigned int MINOR_NUM  = 2;	/* マイナー番号は 0 ~ 1 */
+static const unsigned int MINOR_NUM  = 1;	/* マイナー番号は 0のみ */
 static unsigned int mydevice_major;			/* このデバイスドライバのメジャー番号(動的に決める) */
 static struct cdev mydevice_cdev;			/* キャラクタデバイスのオブジェクト */
 static struct class *mydevice_class = NULL;	/* デバイスドライバのクラスオブジェクト */
-
-/*** 各ファイル(open毎に作られるファイルディスクリプタ)に紐づく情報 ***/
-#define NUM_BUFFER 256
-struct _mydevice_file_data {
-	unsigned char buffer[NUM_BUFFER];
-};
 
 /* open時に呼ばれる関数 */
 static int mydevice_open(struct inode *inode, struct file *file)
 {
 	printk("mydevice_open");
 
-	/* 各ファイル固有のデータを格納する領域を確保する */
-	struct _mydevice_file_data *p = kmalloc(sizeof(struct _mydevice_file_data), GFP_KERNEL);
-	if (p == NULL) {
-		printk(KERN_ERR  "kmalloc\n");
-		return -ENOMEM;
-	}
+	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
+	int address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_GPFSEL_0, 4);
 
-	/* ファイル固有データを初期化する */
-	strlcat(p->buffer, "dummy", 5);
-	
-	/* 確保したポインタはユーザ側のfdで保持してもらう */
-	file->private_data = p;
+	/* GPIO4を出力に設定 */
+	REG(address) = 1 << 12;
+
+	iounmap((void*)address);
 
 	return 0;
 }
@@ -51,13 +51,6 @@ static int mydevice_open(struct inode *inode, struct file *file)
 static int mydevice_close(struct inode *inode, struct file *file)
 {
 	printk("mydevice_close");
-
-	if (file->private_data) {
-		/* open時に確保した、各ファイル固有のデータ領域を解放する */
-		kfree(file->private_data);
-		file->private_data = NULL;
-	}
-
 	return 0;
 }
 
@@ -65,12 +58,16 @@ static int mydevice_close(struct inode *inode, struct file *file)
 static ssize_t mydevice_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	printk("mydevice_read");
-	if(count > NUM_BUFFER) count = NUM_BUFFER;
 
-	struct _mydevice_file_data *p = filp->private_data;
-	if (copy_to_user(buf, p->buffer, count) != 0) {
-		return -EFAULT;
-	}
+	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
+	int address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_LEVEL_0, 4);
+	int val = (REG(address) & (1 << 4)) != 0;	/* GPIO4が0かどうかを0, 1にする */
+
+	/* GPIOの出力値をユーザへ文字として返す */
+	put_user(val + '0', &buf[0]);
+
+	iounmap((void*)address);
+
 	return count;
 }
 
@@ -79,10 +76,23 @@ static ssize_t mydevice_write(struct file *filp, const char __user *buf, size_t 
 {
 	printk("mydevice_write");
 
-	struct _mydevice_file_data *p = filp->private_data;
-	if (copy_from_user(p->buffer, buf, count) != 0) {
-		return -EFAULT;
+	int address;
+	char outValue;
+
+	/* ユーザが設定したGPIOへの出力値を取得 */
+	get_user(outValue, &buf[0]);
+
+	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
+	if(outValue == '1') {
+		/* '1'ならSETする */
+		address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_SET_0, 4);
+	} else {
+		/* '0'ならCLRする */
+		address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_CLR_0, 4);
 	}
+	REG(address) = 1 << 4;
+	iounmap((void*)address);
+	
 	return count;
 }
 

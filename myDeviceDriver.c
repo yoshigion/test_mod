@@ -24,7 +24,7 @@ MODULE_DEVICE_TABLE(i2c, mydevice_i2c_idtable);
 static int mydevice_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	printk("mydevice_i2c_probe\n");
-	printk("id.name = %s, id.driver_data = %d", id->name, id->driver_data);
+	printk("id.name = %s, id.driver_data = %ld", id->name, id->driver_data);
 	printk("slave address = 0x%02X\n", client->addr);
 
 	/* 通常はここで、このデバドラでサポートしているデバイスかどうかチェックする */
@@ -83,7 +83,7 @@ static void mydevice_exit(void)
 {
 	printk("mydevice_exit\n");
 	
-	i2c_del_driver(&mydevice__driver);
+	i2c_del_driver(&mydevice_driver);
 	if(i2c_clie) i2c_unregister_device(i2c_clie);
 }
 

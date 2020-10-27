@@ -44,14 +44,19 @@ static int mydevice_i2c_remove(struct i2c_client *client)
 
 static struct i2c_driver mydevice_driver = {
 	.driver = {
-		.name	= DRIVER_NAME,
+		.name  = DRIVER_NAME,
 		.owner = THIS_MODULE,
 	},
-	.id_table		= mydevice_i2c_idtable,		// このデバイスドライバがサポートするI2Cデバイス
-	.probe			= mydevice_i2c_probe,		// 対象とするI2Cデバイスが認識されたときに呼ばれる処理
-	.remove			= mydevice_i2c_remove,		// 対象とするI2Cデバイスが取り外されたときに呼ばれる処理
+	.id_table	= mydevice_i2c_idtable,		// このデバイスドライバがサポートするI2Cデバイス
+	.probe		= mydevice_i2c_probe,		// 対象とするI2Cデバイスが認識されたときに呼ばれる処理
+	.remove		= mydevice_i2c_remove,		// 対象とするI2Cデバイスが取り外されたときに呼ばれる処理
 };
 
+#if 1
+/* 本デバイスドライバを、I2Cバスを使用するデバイスドライバとして登録する */
+/* else側の処理と等価 */
+module_i2c_driver(mydevice_driver);
+#else
 /* ロード(insmod)時に呼ばれる関数 */
 static int mydevice_init(void)
 {
@@ -71,3 +76,10 @@ static void mydevice_exit(void)
 
 module_init(mydevice_init);
 module_exit(mydevice_exit);
+#endif
+
+#if 0
+I2Cデバイスの実体化には、下記コマンドを使う
+sudo bash -c 'echo MyI2CDevice 0x18 > /sys/bus/i2c/devices/i2c-1/new_device'
+sudo bash -c 'echo  0x18 > /sys/bus/i2c/devices/i2c-1/delete_device'
+#endif

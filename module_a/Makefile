@@ -1,7 +1,7 @@
-CFILES = myDeviceDriver.c
+CFILES = myDeviceDriverA.c
 
-obj-m := MyDeviceModule.o
-MyDeviceModule-objs := $(CFILES:.c=.o)
+obj-m := MyDeviceModuleA.o
+MyDeviceModuleA-objs := $(CFILES:.c=.o)
 
 ccflags-y += -std=gnu99 -Wall -Wno-declaration-after-statement
 

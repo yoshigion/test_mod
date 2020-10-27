@@ -19,7 +19,7 @@
 #define REG_ADDR_GPIO_OUTPUT_CLR_0 0x0028
 #define REG_ADDR_GPIO_LEVEL_0      0x0034
 
-#define REG(addr) (*((volatile unsigned int*)(addr)))
+#define REG(addr) (*((volatile u32 *)(addr)))
 #define DUMP_REG(addr) printk("%08X\n", REG(addr));
 
 /*** このデバイスに関する情報 ***/
@@ -37,7 +37,7 @@ static int mydevice_open(struct inode *inode, struct file *file)
 	printk("mydevice_open");
 
 	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
-	int address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_GPFSEL_0, 4);
+	void __iomem *address = ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_GPFSEL_0, 4);
 
 	/* GPIO4を出力に設定 */
 	REG(address) = 1 << 12;
@@ -60,7 +60,7 @@ static ssize_t mydevice_read(struct file *filp, char __user *buf, size_t count, 
 	printk("mydevice_read");
 
 	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
-	int address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_LEVEL_0, 4);
+	void __iomem *address = ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_LEVEL_0, 4);
 	int val = (REG(address) & (1 << 4)) != 0;	/* GPIO4が0かどうかを0, 1にする */
 
 	/* GPIOの出力値をユーザへ文字として返す */
@@ -76,7 +76,7 @@ static ssize_t mydevice_write(struct file *filp, const char __user *buf, size_t 
 {
 	printk("mydevice_write");
 
-	int address;
+	void __iomem *address;
 	char outValue;
 
 	/* ユーザが設定したGPIOへの出力値を取得 */
@@ -85,10 +85,10 @@ static ssize_t mydevice_write(struct file *filp, const char __user *buf, size_t 
 	/* ARM(CPU)から見た物理アドレス → 仮想アドレス(カーネル空間)へのマッピング */
 	if(outValue == '1') {
 		/* '1'ならSETする */
-		address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_SET_0, 4);
+		address = ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_SET_0, 4);
 	} else {
 		/* '0'ならCLRする */
-		address = (int)ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_CLR_0, 4);
+		address = ioremap_nocache(REG_ADDR_GPIO_BASE + REG_ADDR_GPIO_OUTPUT_CLR_0, 4);
 	}
 	REG(address) = 1 << 4;
 	iounmap((void*)address);

@@ -24,6 +24,9 @@ static unsigned int mydevice_major;
 /* キャラクタデバイスのオブジェクト */
 static struct cdev mydevice_cdev;
 
+/* デバイスドライバのクラスオブジェクト */
+static struct class *mydevice_class = NULL;
+
 /* open時に呼ばれる関数 */
 static int mydevice_open(struct inode *inode, struct file *file)
 {
@@ -38,19 +41,29 @@ static int mydevice_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+#define NUM_BUFFER 256
+static char stored_value[NUM_BUFFER];
+
 /* read時に呼ばれる関数 */
 static ssize_t mydevice_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 {
 	printk("mydevice_read");
-	buf[0] = 'A';
-	return 1;
+	if(count > NUM_BUFFER) count = NUM_BUFFER;
+	if (copy_to_user(buf, stored_value, count) != 0) {
+		return -EFAULT;
+	}
+	return count;
 }
 
 /* write時に呼ばれる関数 */
 static ssize_t mydevice_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	printk("mydevice_write");
-	return 1;
+	if (copy_from_user(stored_value, buf, count) != 0) {
+		return -EFAULT;
+	}
+	printk("%s\n", stored_value);
+	return count;
 }
 
 /* 各種システムコールに対応するハンドラテーブル */
@@ -93,6 +106,20 @@ static int mydevice_init(void)
 		return -1;
 	}
 
+	/* 5. このデバイスのクラス登録をする(/sys/class/mydevice/ を作る) */
+	mydevice_class = class_create(THIS_MODULE, "mydevice");
+	if (IS_ERR(mydevice_class)) {
+		printk(KERN_ERR  "class_create\n");
+		cdev_del(&mydevice_cdev);
+		unregister_chrdev_region(dev, MINOR_NUM);
+		return -1;
+	}
+
+	/* 6. /sys/class/mydevice/mydevice* を作る */
+	for (int minor = MINOR_BASE; minor < MINOR_BASE + MINOR_NUM; minor++) {
+		device_create(mydevice_class, NULL, MKDEV(mydevice_major, minor), NULL, "mydevice%d", minor);
+	}
+
 	return 0;
 }
 
@@ -103,10 +130,18 @@ static void mydevice_exit(void)
 
 	dev_t dev = MKDEV(mydevice_major, MINOR_BASE);
 	
-	/* 5. このデバイスドライバ(cdev)をカーネルから取り除く */
+	/* 7. /sys/class/mydevice/mydevice* を削除する */
+	for (int minor = MINOR_BASE; minor < MINOR_BASE + MINOR_NUM; minor++) {
+		device_destroy(mydevice_class, MKDEV(mydevice_major, minor));
+	}
+
+	/* 8. このデバイスのクラス登録を取り除く(/sys/class/mydevice/を削除する) */
+	class_destroy(mydevice_class);
+
+	/* 9. このデバイスドライバ(cdev)をカーネルから取り除く */
 	cdev_del(&mydevice_cdev);
 
-	/* 6. このデバイスドライバで使用していたメジャー番号の登録を取り除く */
+	/* 10. このデバイスドライバで使用していたメジャー番号の登録を取り除く */
 	unregister_chrdev_region(dev, MINOR_NUM);
 }
 
